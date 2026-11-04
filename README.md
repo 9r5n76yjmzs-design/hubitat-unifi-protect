@@ -19,3 +19,7 @@ These support the doorbell display automation in the Hubitat Context-Aware Endpo
 - Auth: `X-API-Key` header. Create the key in the local console under **Integrations**.
 
 Never commit API keys, console credentials or other secrets to this repository.
+
+## License
+
+Released into the public domain under [The Unlicense](LICENSE).
