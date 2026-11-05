@@ -9,7 +9,7 @@
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Viewport'
-@Field static final String DRIVER_VERSION = '0.1.0'
+@Field static final String DRIVER_VERSION = '0.1.1'
 
 metadata {
     definition(name:DRIVER_NAME, namespace:'dailous', author:'Michael Dailous', importUrl:'https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-viewport.groovy') {
@@ -22,9 +22,9 @@ metadata {
         attribute 'defaultLiveview', 'string'
         attribute 'connection', 'string'
         attribute 'apiStatus', 'enum', ['unconfigured', 'ok', 'unauthorized', 'unreachable', 'error']
-    }
 
-    command 'setLiveview', [[name:'Liveview*', type:'STRING', description:'Liveview name (case-insensitive) or ID. See the liveviews attribute for names.']]
+        command 'setLiveview', [[name:'Liveview*', type:'STRING', description:'Liveview name (case-insensitive) or ID. See the liveviews attribute for names.']]
+    }
 
     preferences {
         input name:'logEnable', type:'bool', title:'Enable debug logging', defaultValue:false
