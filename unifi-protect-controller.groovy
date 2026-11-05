@@ -134,7 +134,7 @@ void componentSetLiveview(child, String liveview) {
 void connectSocket() {
     if (!isConfigured() || realtimeEnable == false) return
     state.socketWanted = true
-    sendEvent name:'realtime', value:'connecting'
+    sendState 'realtime', 'connecting'
     log_debug "Connecting to ${DEVICES_SOCKET_PATH} ..."
     try {
         interfaces.webSocket.connect("wss://${consoleIp.trim()}${API_BASE}${DEVICES_SOCKET_PATH}",
@@ -156,7 +156,7 @@ void webSocketStatus(String message) {
     if (!state.socketWanted) return
     if (message?.startsWith('status: open')) {
         state.reconnectSeconds = RECONNECT_MIN_SECONDS
-        sendEvent name:'realtime', value:'connected'
+        sendState 'realtime', 'connected'
         log_info 'Real-time updates connected'
         // Catch up on anything that changed while the connection was down.
         refresh()
@@ -218,11 +218,11 @@ private void closeSocket() {
     unschedule('connectSocket')
     unschedule('reconnectSocket')
     try { interfaces.webSocket.close() } catch (ignored) { }
-    sendEvent name:'realtime', value:'off'
+    sendState 'realtime', 'off'
 }
 
 private void socketLost() {
-    sendEvent name:'realtime', value:'disconnected'
+    sendState 'realtime', 'disconnected'
     // Check right away whether Protect itself is still reachable, so children are cleared if it isn't.
     refresh()
     Integer delay = (state.reconnectSeconds ?: RECONNECT_MIN_SECONDS) as Integer
@@ -238,7 +238,7 @@ private void socketLost() {
 void handleMetaInfo(response, Map data) {
     Object json = apiResult(response, 'GET /v1/meta/info')
     if (json == null) return
-    if (json.applicationVersion) sendEvent name:'applicationVersion', value:json.applicationVersion
+    if (json.applicationVersion) sendState 'applicationVersion', json.applicationVersion as String
     apiGet '/v1/liveviews', 'handleLiveviews'
 }
 
@@ -399,7 +399,7 @@ private Object apiResult(response, String what) {
 // show when the controller can no longer reach Protect (for example, a revoked API key).
 private void setApiStatus(String value) {
     boolean changed = "${device.currentValue('apiStatus', true)}" != value
-    sendEvent name:'apiStatus', value:value
+    sendState 'apiStatus', value
     if (!changed) return
     if (value == 'ok') log_info 'API status is ok'
     getChildDevices().each { child ->
@@ -409,6 +409,11 @@ private void setApiStatus(String value) {
             log_debug "${child.displayName} does not accept apiStatus updates: ${e.message}"
         }
     }
+}
+
+// Sends an attribute event with a description, as Hubitat shows in the device's Events list.
+private void sendState(String name, String value) {
+    sendEvent name:name, value:value, descriptionText:"${device.displayName} ${name} is ${value}"
 }
 
 private void log_debug(String message) {

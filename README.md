@@ -2,14 +2,14 @@
 
 Hubitat Elevation drivers for UniFi Protect, built on Ubiquiti's **official local Protect Integration API** (API-key authentication).
 
-> **Status:** early development. The controller (0.2.0, with real-time updates) and the Viewport driver (0.1.0) are tested on a Hubitat hub against UniFi Protect 7.3.74.
+> **Status:** early development. The controller (0.2.0, with real-time updates) and the Viewport driver (0.1.1) are tested on a Hubitat hub against UniFi Protect 7.3.74.
 
 ## Drivers
 
 | Driver | File | Purpose | Status |
 |---|---|---|---|
 | UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews and viewers, creates child devices, keeps a real-time connection. | 0.2.0, hub-tested |
-| UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.0, hub-tested |
+| UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.1, hub-tested |
 | UniFi Protect Doorbell | — | Doorbell ring events (official `ringEvent`). | planned |
 
 More device types (cameras, lights, chimes, sensors, …) can be added later as further drivers in `component/`.
