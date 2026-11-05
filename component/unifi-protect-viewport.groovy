@@ -21,6 +21,7 @@ metadata {
         attribute 'liveviews', 'string'
         attribute 'defaultLiveview', 'string'
         attribute 'connection', 'string'
+        attribute 'apiStatus', 'enum', ['unconfigured', 'ok', 'unauthorized', 'unreachable', 'error']
     }
 
     command 'setLiveview', [[name:'Liveview*', type:'STRING', description:'Liveview name (case-insensitive) or ID. See the liveviews attribute for names.']]
@@ -61,4 +62,17 @@ void parseViewport(Map values) {
         sendEvent name:name, value:value, descriptionText:text
         if (changed && txtEnable && name in ['liveview', 'connection']) log.info text
     }
+}
+
+// Called by the controller when its API status changes (for example, the API key was revoked).
+// While Protect can't be reached, the viewer's connection state is unknown, so it is not left
+// showing its last value. The controller's next successful viewer read restores the real state.
+void parseApiStatus(String value) {
+    boolean changed = "${device.currentValue('apiStatus')}" != value
+    String text = "${device.displayName} apiStatus is ${value}"
+    sendEvent name:'apiStatus', value:value, descriptionText:text
+    if (value != 'ok') parseViewport([connection:'unknown'])
+    if (!changed) return
+    if (value != 'ok') log.warn "${text}; liveview values may be out of date"
+    else if (txtEnable) log.info text
 }

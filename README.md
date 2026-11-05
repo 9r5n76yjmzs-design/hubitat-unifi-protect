@@ -43,7 +43,8 @@ Never commit API keys to this repository or paste them into chats or tickets.
 | `liveviewId` | ID of that liveview |
 | `liveviews` | JSON list of all liveview names, for automations to offer as choices |
 | `defaultLiveview` | Name of the liveview Protect marks as default |
-| `connection` | Connection state reported by Protect (e.g. `CONNECTED`) |
+| `connection` | Connection state reported by Protect (e.g. `CONNECTED`, `DISCONNECTED`). Becomes `unknown` as soon as the controller loses access to Protect (`apiStatus` not `ok`) or Protect stops reporting the viewer, so it never shows a stale value. |
+| `apiStatus` | The controller's API status, copied here whenever it changes (`ok`, `unauthorized`, `unreachable`, `error`, `unconfigured`). Anything other than `ok` means the other values may be out of date. |
 
 Commands:
 - **Set Liveview**: switch to a liveview by name (case-insensitive) or ID.

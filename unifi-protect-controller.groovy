@@ -43,7 +43,7 @@ metadata {
 
 void installed() {
     log_info "Installed ${DRIVER_NAME} ${DRIVER_VERSION}"
-    sendEvent name:'apiStatus', value:'unconfigured'
+    setApiStatus('unconfigured')
 }
 
 void updated() {
@@ -57,7 +57,7 @@ void initialize() {
     unschedule('refresh')
     if (!isConfigured()) {
         log_warn 'Console IP address and API key are required'
-        sendEvent name:'apiStatus', value:'unconfigured'
+        setApiStatus('unconfigured')
         return
     }
     switch ("${pollMinutes ?: '5'}") {
@@ -72,7 +72,7 @@ void initialize() {
 
 void refresh() {
     if (!isConfigured()) {
-        sendEvent name:'apiStatus', value:'unconfigured'
+        setApiStatus('unconfigured')
         return
     }
     log_debug 'Refreshing application info, liveviews and viewers ...'
@@ -120,7 +120,6 @@ void componentSetLiveview(child, String liveview) {
 void handleMetaInfo(response, Map data) {
     Object json = apiResult(response, 'GET /v1/meta/info')
     if (json == null) return
-    sendEvent name:'apiStatus', value:'ok'
     if (json.applicationVersion) sendEvent name:'applicationVersion', value:json.applicationVersion
     apiGet '/v1/liveviews', 'handleLiveviews'
 }
@@ -147,6 +146,7 @@ void handleViewers(response, Map data) {
     }
     getChildDevices().findAll { it.deviceNetworkId.startsWith('unifi-protect-viewport-') && !seen.contains(it.deviceNetworkId) }.each {
         log_warn "${it.displayName} is no longer reported by Protect; leaving the device in place"
+        it.parseViewport([connection:'unknown'])
     }
 }
 
@@ -185,7 +185,8 @@ private void updateViewportChild(Map viewer, boolean create) {
         liveviewId: viewer.liveview ?: 'none',
         liveviews: JsonOutput.toJson(liveviewNames()),
         defaultLiveview: liveviewsState().find { it.isDefault }?.name ?: 'none',
-        connection: viewer.state ?: 'unknown'
+        connection: viewer.state ?: 'unknown',
+        apiStatus: 'ok'
     ])
 }
 
@@ -245,23 +246,42 @@ private Object apiResult(response, String what) {
         try { message = response.getErrorMessage() } catch (ignored) { }
         try { body = response.getErrorData() } catch (ignored) { }
         if (status == 401 || status == 403) {
-            sendEvent name:'apiStatus', value:'unauthorized'
+            setApiStatus('unauthorized')
             log_error "${what}: API key rejected (HTTP ${status}). Check the key in Preferences."
         } else if (status == null || status == 408) {
-            sendEvent name:'apiStatus', value:'unreachable'
+            setApiStatus('unreachable')
             log_error "${what}: console unreachable (${message ?: 'no response'})"
         } else {
-            sendEvent name:'apiStatus', value:'error'
+            setApiStatus('error')
             log_error "${what}: HTTP ${status} ${message ?: ''} ${body ?: ''}"
         }
         return null
     }
+    Object json
     try {
-        return response.getJson()
+        json = response.getJson()
     } catch (e) {
-        sendEvent name:'apiStatus', value:'error'
+        setApiStatus('error')
         log_error "${what}: response was not valid JSON (HTTP ${status})"
         return null
+    }
+    setApiStatus('ok')
+    return json
+}
+
+// Updates apiStatus and, when it changes, pushes it to every child device so children
+// show when the controller can no longer reach Protect (for example, a revoked API key).
+private void setApiStatus(String value) {
+    boolean changed = "${device.currentValue('apiStatus', true)}" != value
+    sendEvent name:'apiStatus', value:value
+    if (!changed) return
+    if (value == 'ok') log_info 'API status is ok'
+    getChildDevices().each { child ->
+        try {
+            child.parseApiStatus(value)
+        } catch (e) {
+            log_debug "${child.displayName} does not accept apiStatus updates: ${e.message}"
+        }
     }
 }
 
