@@ -2,14 +2,14 @@
 
 Hubitat Elevation drivers for UniFi Protect, built on Ubiquiti's **official local Protect Integration API** (API-key authentication).
 
-> **Status:** early development (0.1.0). The controller and Viewer drivers are written and parse-checked, but not yet tested on a hub.
+> **Status:** early development (0.1.0). The controller and Viewport drivers are written and parse-checked, but not yet tested on a hub.
 
 ## Drivers
 
 | Driver | File | Purpose | Status |
 |---|---|---|---|
 | UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews and viewers, creates child devices. | 0.1.0, untested |
-| UniFi Protect Viewer | [`component/unifi-protect-viewer.groovy`](component/unifi-protect-viewer.groovy) | One device per viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.0, untested |
+| UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.0, untested |
 | UniFi Protect Doorbell | — | Doorbell ring events (official `ringEvent`). | planned |
 
 More device types (cameras, lights, chimes, sensors, …) can be added later as further drivers in `component/`.
@@ -26,16 +26,16 @@ Never commit API keys to this repository or paste them into chats or tickets.
 ### 2. Install the drivers
 1. In Hubitat, go to **Drivers Code** and import both drivers:
    - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/unifi-protect-controller.groovy`
-   - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-viewer.groovy`
+   - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-viewport.groovy`
 
    These raw URLs need authentication while the repository is private. Until it's public, paste the code into **Drivers Code** directly.
 
 ### 3. Create the controller device
 1. Go to **Devices** → **Add device** → **Virtual**, and choose **UniFi Protect Controller**.
 1. In **Preferences**, enter the console IP address and the API key, choose a refresh interval, and click **Save**.
-1. The controller checks the API (`apiStatus` should become `ok`), reads the liveviews and creates a **UniFi Protect Viewer** device for each viewer.
+1. The controller checks the API (`apiStatus` should become `ok`), reads the liveviews and creates a **UniFi Protect Viewport** device for each viewer.
 
-## Viewer device
+## Viewport device
 
 | Attribute | Meaning |
 |---|---|
@@ -43,7 +43,7 @@ Never commit API keys to this repository or paste them into chats or tickets.
 | `liveviewId` | ID of that liveview |
 | `liveviews` | JSON list of all liveview names, for automations to offer as choices |
 | `defaultLiveview` | Name of the liveview Protect marks as default |
-| `connection` | Viewer connection state reported by Protect (e.g. `CONNECTED`) |
+| `connection` | Connection state reported by Protect (e.g. `CONNECTED`) |
 
 Commands:
 - **Set Liveview**: switch to a liveview by name (case-insensitive) or ID.

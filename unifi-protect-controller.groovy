@@ -13,7 +13,7 @@ import groovy.transform.Field
 @Field static final String DRIVER_NAME = 'UniFi Protect Controller'
 @Field static final String DRIVER_VERSION = '0.1.0'
 @Field static final String NAMESPACE = 'dailous'
-@Field static final String VIEWER_DRIVER = 'UniFi Protect Viewer'
+@Field static final String VIEWPORT_DRIVER = 'UniFi Protect Viewport'
 @Field static final String API_BASE = '/proxy/protect/integration'
 @Field static final Integer HTTP_TIMEOUT_SECONDS = 10
 @Field static final Map<String, String> POLL_OPTIONS = ['0':'Off', '1':'Every minute', '5':'Every 5 minutes', '15':'Every 15 minutes', '30':'Every 30 minutes']
@@ -142,10 +142,10 @@ void handleViewers(response, Map data) {
     log_debug "Found ${json.size()} viewer(s)"
     Set<String> seen = [] as Set
     json.each { Map viewer ->
-        seen << viewerDni(viewer.id as String)
-        updateViewerChild(viewer, true)
+        seen << viewportDni(viewer.id as String)
+        updateViewportChild(viewer, true)
     }
-    getChildDevices().findAll { it.deviceNetworkId.startsWith('unifi-protect-viewer-') && !seen.contains(it.deviceNetworkId) }.each {
+    getChildDevices().findAll { it.deviceNetworkId.startsWith('unifi-protect-viewport-') && !seen.contains(it.deviceNetworkId) }.each {
         log_warn "${it.displayName} is no longer reported by Protect; leaving the device in place"
     }
 }
@@ -153,34 +153,34 @@ void handleViewers(response, Map data) {
 void handleViewer(response, Map data) {
     Object json = apiResult(response, 'viewer request')
     if (!(json instanceof Map)) return
-    updateViewerChild(json as Map, false)
+    updateViewportChild(json as Map, false)
 }
 
 // ===================================================================================================================
 // Helpers
 // ===================================================================================================================
 
-private void updateViewerChild(Map viewer, boolean create) {
-    String dni = viewerDni(viewer.id as String)
+private void updateViewportChild(Map viewer, boolean create) {
+    String dni = viewportDni(viewer.id as String)
     def child = getChildDevice(dni)
     if (!child && create) {
         try {
-            child = addChildDevice(NAMESPACE, VIEWER_DRIVER, dni, [name:viewer.name ?: 'UniFi Protect Viewer', label:viewer.name, isComponent:false])
-            log_info "Created viewer device '${viewer.name}'"
+            child = addChildDevice(NAMESPACE, VIEWPORT_DRIVER, dni, [name:viewer.name ?: 'UniFi Protect Viewport', label:viewer.name, isComponent:false])
+            log_info "Created Viewport device '${viewer.name}'"
         } catch (e) {
-            log_error "Could not create viewer device '${viewer.name}'. Is the '${VIEWER_DRIVER}' driver installed? ${e.message}"
+            log_error "Could not create Viewport device '${viewer.name}'. Is the '${VIEWPORT_DRIVER}' driver installed? ${e.message}"
             return
         }
     }
     if (!child) {
-        log_warn "No device for viewer ${viewer.id}; run Refresh on the controller"
+        log_warn "No Viewport device for viewer ${viewer.id}; run Refresh on the controller"
         return
     }
     child.updateDataValue 'viewerId', viewer.id as String
     if (viewer.type) child.updateDataValue 'type', viewer.type as String
 
     Map current = findLiveview(viewer.liveview as String)
-    child.parseViewer([
+    child.parseViewport([
         liveview: current?.name ?: (viewer.liveview ? "unknown (${viewer.liveview})" : 'none'),
         liveviewId: viewer.liveview ?: 'none',
         liveviews: JsonOutput.toJson(liveviewNames()),
@@ -205,8 +205,8 @@ private List<String> liveviewNames() {
     return liveviewsState().collect { it.name as String }
 }
 
-private static String viewerDni(String id) {
-    return "unifi-protect-viewer-${id}"
+private static String viewportDni(String id) {
+    return "unifi-protect-viewport-${id}"
 }
 
 private boolean isConfigured() {
