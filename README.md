@@ -2,13 +2,13 @@
 
 Hubitat Elevation drivers for UniFi Protect, built on Ubiquiti's **official local Protect Integration API** (API-key authentication).
 
-> **Status:** early development (0.1.0). The controller and Viewport drivers are tested on a Hubitat hub against UniFi Protect 7.3.74.
+> **Status:** early development. The controller (0.2.0, with real-time updates) and the Viewport driver (0.1.0) are tested on a Hubitat hub against UniFi Protect 7.3.74.
 
 ## Drivers
 
 | Driver | File | Purpose | Status |
 |---|---|---|---|
-| UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews and viewers, creates child devices. | 0.1.0, hub-tested |
+| UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews and viewers, creates child devices, keeps a real-time connection. | 0.2.0, hub-tested |
 | UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.0, hub-tested |
 | UniFi Protect Doorbell | — | Doorbell ring events (official `ringEvent`). | planned |
 
@@ -32,8 +32,21 @@ Never commit API keys to this repository or paste them into chats or tickets.
 
 ### 3. Create the controller device
 1. Go to **Devices** → **Add device** → **Virtual**, and choose **UniFi Protect Controller**.
-1. In **Preferences**, enter the console IP address and the API key, choose a refresh interval, and click **Save**.
+1. In **Preferences**, enter the console IP address and the API key, leave **Real-time updates** on, choose a refresh interval, and click **Save**.
 1. The controller checks the API (`apiStatus` should become `ok`), reads the liveviews and creates a **UniFi Protect Viewport** device for each viewer.
+
+## Controller device
+
+| Attribute | Meaning |
+|---|---|
+| `apiStatus` | Whether Hubitat can use the Protect API: `ok`, `unauthorized` (key rejected), `unreachable`, `error`, `unconfigured` |
+| `realtime` | The live connection to Protect: `connected`, `connecting`, `disconnected` (retrying, with waits from 5 seconds up to 5 minutes), `off` |
+| `applicationVersion` | Protect version |
+| `liveviews`, `defaultLiveview` | All liveview names, and the one Protect marks as default |
+
+**Real-time updates** keep a WebSocket open to Protect's official devices feed (`/v1/subscribe/devices`). A viewer's liveview or connection change made anywhere (the Protect app, the ViewPort itself, a lost network link) then shows up in Hubitat within a second or two. Each time the connection opens, the controller does a full refresh to catch up on anything it missed. If the connection drops, it checks the API at once, so Viewport values are cleared straight away when Protect is down.
+
+The **refresh interval** stays on as a safety net. Liveviews that are created, renamed or deleted aren't sent on the devices feed and are picked up on the next refresh, or straight away if a viewer switches to a liveview Hubitat doesn't know yet.
 
 ## Viewport device
 
@@ -52,9 +65,9 @@ Commands:
 - **Set Liveview**: switch to a liveview by name (case-insensitive) or ID.
 - **Refresh**: re-read this viewer from Protect.
 
-## Known limitations (0.1.0)
+## Known limitations
 
-- **Changes made outside Hubitat are only seen on refresh.** If someone changes the viewer's liveview in the Protect app, Hubitat picks it up at the next refresh interval or when **Refresh** is run. Real-time updates through the official devices WebSocket are planned.
+- **Liveview list changes are seen on refresh.** New, renamed or deleted liveviews appear at the next refresh interval (see above). Viewer changes are real time.
 - **Refresh is asynchronous.** The `liveview` attribute updates shortly after **Refresh** returns, not immediately.
 - **The console's self-signed certificate is accepted without verification** (`ignoreSSLIssues`), as is usual for local UniFi consoles.
 
