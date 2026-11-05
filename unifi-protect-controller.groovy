@@ -3,7 +3,8 @@
  *
  * Parent driver for UniFi Protect using Ubiquiti's official local Integration API
  * (https://developer.ui.com/protect/). Holds the console address and API key,
- * discovers devices and creates one child device per supported device type.
+ * discovers devices and creates one child device per supported device type
+ * (Viewport for viewers, Doorbell for doorbell cameras, and one Event Stream for live events).
  *
  * @see https://github.com/9r5n76yjmzs-design/hubitat-unifi-protect
  */
@@ -11,12 +12,16 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Controller'
-@Field static final String DRIVER_VERSION = '0.2.0'
+@Field static final String DRIVER_VERSION = '0.3.0'
 @Field static final String NAMESPACE = 'dailous'
 @Field static final String VIEWPORT_DRIVER = 'UniFi Protect Viewport'
+@Field static final String DOORBELL_DRIVER = 'UniFi Protect Doorbell'
+@Field static final String EVENT_STREAM_DRIVER = 'UniFi Protect Event Stream'
+@Field static final String EVENT_STREAM_DNI = 'unifi-protect-event-stream'
 @Field static final String API_BASE = '/proxy/protect/integration'
 @Field static final Integer HTTP_TIMEOUT_SECONDS = 10
 @Field static final String DEVICES_SOCKET_PATH = '/v1/subscribe/devices'
+@Field static final String EVENTS_SOCKET_PATH = '/v1/subscribe/events'
 @Field static final Integer RECONNECT_MIN_SECONDS = 5
 @Field static final Integer RECONNECT_MAX_SECONDS = 300
 @Field static final Map<String, String> POLL_OPTIONS = ['0':'Off', '1':'Every minute', '5':'Every 5 minutes', '15':'Every 15 minutes', '30':'Every 30 minutes']
@@ -29,6 +34,7 @@ metadata {
         attribute 'apiStatus', 'enum', ['unconfigured', 'ok', 'unauthorized', 'unreachable', 'error']
         attribute 'applicationVersion', 'string'
         attribute 'realtime', 'enum', ['connected', 'connecting', 'disconnected', 'off']
+        attribute 'eventStream', 'enum', ['connected', 'connecting', 'disconnected', 'off']
     }
 
     preferences {
@@ -89,7 +95,7 @@ void refresh() {
         setApiStatus('unconfigured')
         return
     }
-    log_debug 'Refreshing application info, liveviews and viewers ...'
+    log_debug 'Refreshing application info, liveviews, viewers and cameras ...'
     apiGet '/v1/meta/info', 'handleMetaInfo'
 }
 
@@ -103,6 +109,11 @@ void logsOff() {
 // ===================================================================================================================
 
 void componentRefresh(child) {
+    String cameraId = child.getDataValue('cameraId')
+    if (cameraId) {
+        apiGet "/v1/cameras/${cameraId}", 'handleCamera'
+        return
+    }
     String viewerId = child.getDataValue('viewerId')
     if (!viewerId) {
         log_warn "${child.displayName} has no viewerId; running a full refresh"
@@ -125,6 +136,31 @@ void componentSetLiveview(child, String liveview) {
     }
     log_info "Switching ${child.displayName} to liveview '${lv.name}'"
     apiPatch "/v1/viewers/${viewerId}", [liveview:lv.id], 'handleViewer'
+}
+
+// Called by the Event Stream child for each connection attempt, so the API key stays in this device.
+Map componentEventStreamTarget() {
+    if (!isConfigured() || realtimeEnable == false) return null
+    return [url:"wss://${consoleIp.trim()}${API_BASE}${EVENTS_SOCKET_PATH}", headers:['X-API-KEY': apiKey.trim()]]
+}
+
+// Called by the Event Stream child when its connection state changes.
+void componentEventStreamStatus(String value) {
+    sendState 'eventStream', value
+}
+
+// Called by the Event Stream child with each Protect event; routes it to the child it belongs to.
+void componentEvent(Map msg) {
+    Map item = msg.item as Map
+    if (item?.type != 'ring') return
+    log_debug "Ring event ${msg.type}: ${item}"
+    if (msg.type != 'add') return
+    def child = getChildDevice(doorbellDni(item.device as String))
+    if (child) {
+        child.parseRing(item)
+    } else {
+        log_info "Ring from camera ${item.device}, which has no Doorbell device; run Refresh on the controller"
+    }
 }
 
 // ===================================================================================================================
@@ -176,6 +212,10 @@ void parse(String message) {
         return
     }
     Map item = msg?.item as Map
+    if (item?.modelKey == 'camera') {
+        parseCameraMessage(msg.type as String, item)
+        return
+    }
     if (item?.modelKey != 'viewer') return
     log_debug "Real-time viewer ${msg.type}: ${item}"
     List<String> ids = (item.id instanceof List ? item.id : [item.id]).collect { it as String }
@@ -205,6 +245,34 @@ void parse(String message) {
     }
 }
 
+// Real-time camera messages. Only cameras with a Doorbell device are of interest; other cameras are ignored.
+private void parseCameraMessage(String type, Map item) {
+    List<String> ids = (item.id instanceof List ? item.id : [item.id]).collect { it as String }
+    switch (type) {
+        case 'add':
+            if (isDoorbell(item)) {
+                log_info 'Protect reported a new doorbell; refreshing'
+                refresh()
+            }
+            break
+        case 'update':
+            if (!item.containsKey('state')) return
+            ids.each { String id ->
+                def child = getChildDevice(doorbellDni(id))
+                if (child) child.parseCamera([connection:item.state ?: 'unknown'])
+            }
+            break
+        case 'remove':
+            ids.each { String id ->
+                def child = getChildDevice(doorbellDni(id))
+                if (!child) return
+                log_warn "${child.displayName} was removed from Protect; leaving the device in place"
+                child.clearCamera()
+            }
+            break
+    }
+}
+
 // Removes values of attributes that earlier versions of this driver declared, so they no longer
 // show under Current States. Liveview details now live only on the child devices that use them.
 private void removeRetiredStates() {
@@ -219,6 +287,7 @@ private void closeSocket() {
     unschedule('reconnectSocket')
     try { interfaces.webSocket.close() } catch (ignored) { }
     sendState 'realtime', 'off'
+    getChildDevice(EVENT_STREAM_DNI)?.stopStream()
 }
 
 private void socketLost() {
@@ -264,6 +333,30 @@ void handleViewers(response, Map data) {
         log_warn "${it.displayName} is no longer reported by Protect; leaving the device in place"
         it.clearViewport()
     }
+    apiGet '/v1/cameras', 'handleCameras'
+}
+
+void handleCameras(response, Map data) {
+    Object json = apiResult(response, 'GET /v1/cameras')
+    if (!(json instanceof List)) return
+    List<Map> doorbells = json.findAll { isDoorbell(it as Map) }
+    log_debug "Found ${json.size()} camera(s), ${doorbells.size()} doorbell(s)"
+    Set<String> seen = [] as Set
+    doorbells.each { Map camera ->
+        seen << doorbellDni(camera.id as String)
+        updateDoorbellChild(camera, true)
+    }
+    getChildDevices().findAll { it.deviceNetworkId.startsWith('unifi-protect-doorbell-') && !seen.contains(it.deviceNetworkId) }.each {
+        log_warn "${it.displayName} is no longer reported by Protect; leaving the device in place"
+        it.clearCamera()
+    }
+    updateEventStream(!doorbells.isEmpty())
+}
+
+void handleCamera(response, Map data) {
+    Object json = apiResult(response, 'camera request')
+    if (!(json instanceof Map)) return
+    updateDoorbellChild(json as Map, false)
 }
 
 void handleViewer(response, Map data) {
@@ -296,6 +389,55 @@ private void updateViewportChild(Map viewer, boolean create) {
     if (viewer.type) child.updateDataValue 'type', viewer.type as String
 
     child.parseViewport(viewportValues(viewer, true))
+}
+
+private void updateDoorbellChild(Map camera, boolean create) {
+    String dni = doorbellDni(camera.id as String)
+    def child = getChildDevice(dni)
+    if (!child && create) {
+        try {
+            child = addChildDevice(NAMESPACE, DOORBELL_DRIVER, dni, [name:camera.name ?: 'UniFi Protect Doorbell', label:camera.name, isComponent:false])
+            log_info "Created Doorbell device '${camera.name}'"
+        } catch (e) {
+            log_error "Could not create Doorbell device '${camera.name}'. Is the '${DOORBELL_DRIVER}' driver installed? ${e.message}"
+            return
+        }
+    }
+    if (!child) {
+        log_warn "No Doorbell device for camera ${camera.id}; run Refresh on the controller"
+        return
+    }
+    child.updateDataValue 'cameraId', camera.id as String
+    if (camera.type) child.updateDataValue 'type', camera.type as String
+    child.parseCamera([connection:camera.state ?: 'unknown', apiStatus:'ok'])
+}
+
+// Keeps the one events connection open while it is needed: real-time updates on and at least one doorbell.
+private void updateEventStream(boolean needed) {
+    def stream = getChildDevice(EVENT_STREAM_DNI)
+    if (!needed || realtimeEnable == false) {
+        if (stream && stream.currentValue('stream', true) != 'off') stream.stopStream()
+        return
+    }
+    if (!stream) {
+        try {
+            stream = addChildDevice(NAMESPACE, EVENT_STREAM_DRIVER, EVENT_STREAM_DNI, [name:EVENT_STREAM_DRIVER, label:"${device.displayName} Event Stream", isComponent:true])
+            log_info 'Created the Event Stream device'
+        } catch (e) {
+            log_error "Could not create the Event Stream device. Is the '${EVENT_STREAM_DRIVER}' driver installed? Rings can't be received without it. ${e.message}"
+            return
+        }
+    }
+    if (stream.currentValue('stream', true) == 'off') stream.startStream()
+}
+
+// Protect has no doorbell flag; doorbell models carry "Doorbell" in their model name (e.g. "UVC G4 Doorbell Pro").
+private static boolean isDoorbell(Map camera) {
+    return "${camera?.type}".toLowerCase().contains('doorbell')
+}
+
+private static String doorbellDni(String id) {
+    return "unifi-protect-doorbell-${id}"
 }
 
 // Maps a Protect viewer to Viewport attribute values. A full viewer (from a REST read) gives every value;
@@ -402,7 +544,7 @@ private void setApiStatus(String value) {
     sendState 'apiStatus', value
     if (!changed) return
     if (value == 'ok') log_info 'API status is ok'
-    getChildDevices().each { child ->
+    getChildDevices().findAll { it.deviceNetworkId != EVENT_STREAM_DNI }.each { child ->
         try {
             child.parseApiStatus(value)
         } catch (e) {
