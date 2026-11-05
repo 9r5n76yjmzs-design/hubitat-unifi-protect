@@ -65,14 +65,25 @@ void parseViewport(Map values) {
 }
 
 // Called by the controller when its API status changes (for example, the API key was revoked).
-// While Protect can't be reached, the viewer's connection state is unknown, so it is not left
-// showing its last value. The controller's next successful viewer read restores the real state.
+// While Protect can't be reached, the viewer's values are cleared rather than left showing
+// their last state. The controller's next successful viewer read fills them in again.
 void parseApiStatus(String value) {
     boolean changed = "${device.currentValue('apiStatus')}" != value
     String text = "${device.displayName} apiStatus is ${value}"
     sendEvent name:'apiStatus', value:value, descriptionText:text
-    if (value != 'ok') parseViewport([connection:'unknown'])
+    if (value != 'ok') clearViewport()
     if (!changed) return
-    if (value != 'ok') log.warn "${text}; liveview values may be out of date"
+    if (value != 'ok') log.warn "${text}; viewer values cleared until Protect can be reached"
     else if (txtEnable) log.info text
+}
+
+// Called when the viewer's state is not known: Protect can't be reached or no longer lists the viewer.
+void clearViewport() {
+    parseViewport([
+        liveview: 'unknown',
+        liveviewId: 'unknown',
+        liveviews: '[]',
+        defaultLiveview: 'unknown',
+        connection: 'unknown'
+    ])
 }

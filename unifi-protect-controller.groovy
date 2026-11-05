@@ -146,7 +146,7 @@ void handleViewers(response, Map data) {
     }
     getChildDevices().findAll { it.deviceNetworkId.startsWith('unifi-protect-viewport-') && !seen.contains(it.deviceNetworkId) }.each {
         log_warn "${it.displayName} is no longer reported by Protect; leaving the device in place"
-        it.parseViewport([connection:'unknown'])
+        it.clearViewport()
     }
 }
 
