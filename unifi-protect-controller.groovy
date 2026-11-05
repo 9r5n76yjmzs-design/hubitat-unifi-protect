@@ -28,8 +28,6 @@ metadata {
 
         attribute 'apiStatus', 'enum', ['unconfigured', 'ok', 'unauthorized', 'unreachable', 'error']
         attribute 'applicationVersion', 'string'
-        attribute 'liveviews', 'string'
-        attribute 'defaultLiveview', 'string'
         attribute 'realtime', 'enum', ['connected', 'connecting', 'disconnected', 'off']
     }
 
@@ -65,6 +63,7 @@ void uninstalled() {
 void initialize() {
     unschedule('refresh')
     closeSocket()
+    removeRetiredStates()
     if (!isConfigured()) {
         log_warn 'Console IP address and API key are required'
         setApiStatus('unconfigured')
@@ -206,6 +205,14 @@ void parse(String message) {
     }
 }
 
+// Removes values of attributes that earlier versions of this driver declared, so they no longer
+// show under Current States. Liveview details now live only on the child devices that use them.
+private void removeRetiredStates() {
+    ['liveviews', 'defaultLiveview'].each { String name ->
+        try { device.deleteCurrentState(name) } catch (ignored) { }
+    }
+}
+
 private void closeSocket() {
     state.socketWanted = false
     unschedule('connectSocket')
@@ -240,8 +247,6 @@ void handleLiveviews(response, Map data) {
     if (!(json instanceof List)) return
     List<Map> liveviews = json.collect { [id:it.id, name:it.name, isDefault:it.isDefault == true] }
     state.liveviews = liveviews
-    sendEvent name:'liveviews', value:JsonOutput.toJson(liveviewNames())
-    sendEvent name:'defaultLiveview', value:(liveviews.find { it.isDefault }?.name ?: 'none')
     log_debug "Found ${liveviews.size()} liveview(s): ${liveviewNames()}"
     apiGet '/v1/viewers', 'handleViewers'
 }

@@ -42,7 +42,8 @@ Never commit API keys to this repository or paste them into chats or tickets.
 | `apiStatus` | Whether Hubitat can use the Protect API: `ok`, `unauthorized` (key rejected), `unreachable`, `error`, `unconfigured` |
 | `realtime` | The live connection to Protect: `connected`, `connecting`, `disconnected` (retrying, with waits from 5 seconds up to 5 minutes), `off` |
 | `applicationVersion` | Protect version |
-| `liveviews`, `defaultLiveview` | All liveview names, and the one Protect marks as default |
+
+Liveview details (`liveviews`, `defaultLiveview`) are kept only on the child devices that use them, such as the Viewport. Saving the controller's preferences removes them from controllers set up with 0.1.0.
 
 **Real-time updates** keep a WebSocket open to Protect's official devices feed (`/v1/subscribe/devices`). A viewer's liveview or connection change made anywhere (the Protect app, the ViewPort itself, a lost network link) then shows up in Hubitat within a second or two. Each time the connection opens, the controller does a full refresh to catch up on anything it missed. If the connection drops, it checks the API at once, so Viewport values are cleared straight away when Protect is down.
 
