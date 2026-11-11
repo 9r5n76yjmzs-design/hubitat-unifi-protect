@@ -11,7 +11,7 @@
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Doorbell'
-@Field static final String DRIVER_VERSION = '0.1.0'
+@Field static final String DRIVER_VERSION = '0.1.1'
 
 metadata {
     definition(name:DRIVER_NAME, namespace:'dailous', author:'Michael Dailous', importUrl:'https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-doorbell.groovy') {
@@ -25,7 +25,7 @@ metadata {
     }
 
     preferences {
-        input name:'logEnable', type:'bool', title:'Enable debug logging', defaultValue:false
+        input name:'logEnable', type:'bool', title:'Enable debug logging (turns off after 30 minutes)', defaultValue:false
         input name:'txtEnable', type:'bool', title:'Enable description text logging', defaultValue:true
     }
 }
@@ -37,7 +37,15 @@ void installed() {
 
 void updated() {
     log.info "${device.displayName}: Preferences saved"
+    unschedule('logsOff')
+    if (logEnable) runIn 1800, 'logsOff'
     sendEvent name:'numberOfButtons', value:1, descriptionText:"${device.displayName} numberOfButtons is 1"
+}
+
+// Debug logging switches itself off after 30 minutes, so it isn't left on by accident.
+void logsOff() {
+    device.updateSetting 'logEnable', [value:'false', type:'bool']
+    log.info "${device.displayName}: Debug logging disabled"
 }
 
 void refresh() {

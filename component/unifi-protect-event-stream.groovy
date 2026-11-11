@@ -12,7 +12,7 @@
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Event Stream'
-@Field static final String DRIVER_VERSION = '0.1.0'
+@Field static final String DRIVER_VERSION = '0.1.1'
 @Field static final Integer RECONNECT_MIN_SECONDS = 5
 @Field static final Integer RECONNECT_MAX_SECONDS = 300
 
@@ -22,7 +22,7 @@ metadata {
     }
 
     preferences {
-        input name:'logEnable', type:'bool', title:'Enable debug logging', defaultValue:false
+        input name:'logEnable', type:'bool', title:'Enable debug logging (turns off after 30 minutes)', defaultValue:false
     }
 }
 
@@ -33,6 +33,14 @@ void installed() {
 
 void updated() {
     log.info "${device.displayName}: Preferences saved"
+    unschedule('logsOff')
+    if (logEnable) runIn 1800, 'logsOff'
+}
+
+// Debug logging switches itself off after 30 minutes, so it isn't left on by accident.
+void logsOff() {
+    device.updateSetting 'logEnable', [value:'false', type:'bool']
+    log.info "${device.displayName}: Debug logging disabled"
 }
 
 void uninstalled() {
@@ -66,6 +74,7 @@ void connectStream() {
     setStream('connecting')
     if (logEnable) log.debug "${device.displayName}: connecting to the events feed ..."
     try {
+        // The console's certificate is self-signed and Hubitat can't pin it, so it isn't verified. See SECURITY.md.
         interfaces.webSocket.connect(target.url as String, headers: target.headers as Map, ignoreSSLIssues: true, pingInterval: 30)
     } catch (e) {
         log.error "${device.displayName}: could not open the events connection: ${e.message}"

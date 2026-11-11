@@ -3,6 +3,8 @@
 
 # Local secrets / scratch
 *.local
+*.key
+*.pem
 .env
 .env.*
 secrets/
