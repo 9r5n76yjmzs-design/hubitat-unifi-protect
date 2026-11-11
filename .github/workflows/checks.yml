@@ -22,6 +22,9 @@ jobs:
       - name: Secure coding checks
         run: bash .github/scripts/security-check.sh
 
+      - name: Package manifest check
+        run: python3 .github/scripts/manifest-check.py
+
       - name: Groovy parse check
         run: |
           git ls-files -z '*.groovy' | xargs -0 docker run --rm -v "$PWD:/src" -w /src \
