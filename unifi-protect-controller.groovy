@@ -12,7 +12,7 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Controller'
-@Field static final String DRIVER_VERSION = '0.3.0'
+@Field static final String DRIVER_VERSION = '0.3.1'
 @Field static final String NAMESPACE = 'dailous'
 @Field static final String VIEWPORT_DRIVER = 'UniFi Protect Viewport'
 @Field static final String DOORBELL_DRIVER = 'UniFi Protect Doorbell'
@@ -38,11 +38,11 @@ metadata {
     }
 
     preferences {
-        input name:'consoleIp', type:'text', title:'Console IP address', description:'Local IP address of the UniFi console running Protect', required:true
+        input name:'consoleIp', type:'text', title:'Console IP address', description:'Local IPv4 address of the UniFi console running Protect, for example 192.168.1.1. Host names are not accepted, so the API key is only ever sent to that address.', required:true
         input name:'apiKey', type:'password', title:'API key', description:'Created in UniFi Protect &rarr; Integrations', required:true
         input name:'realtimeEnable', type:'bool', title:'Real-time updates', description:'Keep a live connection to Protect so device changes show up immediately', defaultValue:true
         input name:'pollMinutes', type:'enum', title:'Refresh interval', description:'Full refresh as a safety net, also when real-time updates are on', options:POLL_OPTIONS, defaultValue:'5', required:true
-        input name:'logEnable', type:'bool', title:'Enable debug logging (turns off after 30 minutes)', defaultValue:true
+        input name:'logEnable', type:'bool', title:'Enable debug logging (turns off after 30 minutes)', defaultValue:false
     }
 }
 
@@ -70,8 +70,11 @@ void initialize() {
     unschedule('refresh')
     closeSocket()
     removeRetiredStates()
+    if (consoleIp?.trim() && !isIPv4(consoleIp)) {
+        log_error "'${consoleIp}' is not an IPv4 address (for example 192.168.1.1); not connecting"
+    }
     if (!isConfigured()) {
-        log_warn 'Console IP address and API key are required'
+        log_warn 'An IPv4 console address and the API key are required'
         setApiStatus('unconfigured')
         return
     }
@@ -110,11 +113,19 @@ void logsOff() {
 
 void componentRefresh(child) {
     String cameraId = child.getDataValue('cameraId')
+    if (cameraId && !isProtectId(cameraId)) {
+        log_error "${child.displayName} has an invalid cameraId; not refreshing"
+        return
+    }
     if (cameraId) {
         apiGet "/v1/cameras/${cameraId}", 'handleCamera'
         return
     }
     String viewerId = child.getDataValue('viewerId')
+    if (viewerId && !isProtectId(viewerId)) {
+        log_error "${child.displayName} has an invalid viewerId; not refreshing"
+        return
+    }
     if (!viewerId) {
         log_warn "${child.displayName} has no viewerId; running a full refresh"
         refresh()
@@ -125,12 +136,12 @@ void componentRefresh(child) {
 
 void componentSetLiveview(child, String liveview) {
     String viewerId = child.getDataValue('viewerId')
-    if (!viewerId) {
-        log_error "${child.displayName} has no viewerId; cannot change liveview"
+    if (!isProtectId(viewerId)) {
+        log_error "${child.displayName} has no valid viewerId; cannot change liveview"
         return
     }
     Map lv = findLiveview(liveview)
-    if (!lv) {
+    if (!lv || !isProtectId(lv.id as String)) {
         log_error "Liveview '${liveview}' not found. Available: ${liveviewNames()}"
         return
     }
@@ -154,7 +165,7 @@ void componentEvent(Map msg) {
     Map item = msg.item as Map
     if (item?.type != 'ring') return
     log_debug "Ring event ${msg.type}: ${item}"
-    if (msg.type != 'add') return
+    if (msg.type != 'add' || !isProtectId(item.device as String)) return
     def child = getChildDevice(doorbellDni(item.device as String))
     if (child) {
         child.parseRing(item)
@@ -173,6 +184,7 @@ void connectSocket() {
     sendState 'realtime', 'connecting'
     log_debug "Connecting to ${DEVICES_SOCKET_PATH} ..."
     try {
+        // The console's certificate is self-signed and Hubitat can't pin it, so it isn't verified. See SECURITY.md.
         interfaces.webSocket.connect("wss://${consoleIp.trim()}${API_BASE}${DEVICES_SOCKET_PATH}",
             headers: ['X-API-KEY': apiKey.trim()], ignoreSSLIssues: true, pingInterval: 30)
     } catch (e) {
@@ -218,7 +230,7 @@ void parse(String message) {
     }
     if (item?.modelKey != 'viewer') return
     log_debug "Real-time viewer ${msg.type}: ${item}"
-    List<String> ids = (item.id instanceof List ? item.id : [item.id]).collect { it as String }
+    List<String> ids = protectIds(item.id)
     switch (msg.type) {
         case 'add':
             log_info 'Protect reported a new viewer; refreshing'
@@ -247,7 +259,7 @@ void parse(String message) {
 
 // Real-time camera messages. Only cameras with a Doorbell device are of interest; other cameras are ignored.
 private void parseCameraMessage(String type, Map item) {
-    List<String> ids = (item.id instanceof List ? item.id : [item.id]).collect { it as String }
+    List<String> ids = protectIds(item.id)
     switch (type) {
         case 'add':
             if (isDoorbell(item)) {
@@ -259,7 +271,7 @@ private void parseCameraMessage(String type, Map item) {
             if (!item.containsKey('state')) return
             ids.each { String id ->
                 def child = getChildDevice(doorbellDni(id))
-                if (child) child.parseCamera([connection:item.state ?: 'unknown'])
+                if (child) child.parseCamera([connection:plainText(item.state as String) ?: 'unknown'])
             }
             break
         case 'remove':
@@ -314,7 +326,7 @@ void handleMetaInfo(response, Map data) {
 void handleLiveviews(response, Map data) {
     Object json = apiResult(response, 'GET /v1/liveviews')
     if (!(json instanceof List)) return
-    List<Map> liveviews = json.collect { [id:it.id, name:it.name, isDefault:it.isDefault == true] }
+    List<Map> liveviews = json.findAll { isProtectId(it.id as String) }.collect { [id:it.id as String, name:plainText(it.name as String) ?: (it.id as String), isDefault:it.isDefault == true] }
     state.liveviews = liveviews
     log_debug "Found ${liveviews.size()} liveview(s): ${liveviewNames()}"
     apiGet '/v1/viewers', 'handleViewers'
@@ -325,7 +337,7 @@ void handleViewers(response, Map data) {
     if (!(json instanceof List)) return
     log_debug "Found ${json.size()} viewer(s)"
     Set<String> seen = [] as Set
-    json.each { Map viewer ->
+    json.findAll { isProtectId(it.id as String) }.each { Map viewer ->
         seen << viewportDni(viewer.id as String)
         updateViewportChild(viewer, true)
     }
@@ -339,7 +351,7 @@ void handleViewers(response, Map data) {
 void handleCameras(response, Map data) {
     Object json = apiResult(response, 'GET /v1/cameras')
     if (!(json instanceof List)) return
-    List<Map> doorbells = json.findAll { isDoorbell(it as Map) }
+    List<Map> doorbells = json.findAll { isDoorbell(it as Map) && isProtectId(it.id as String) }
     log_debug "Found ${json.size()} camera(s), ${doorbells.size()} doorbell(s)"
     Set<String> seen = [] as Set
     doorbells.each { Map camera ->
@@ -355,13 +367,13 @@ void handleCameras(response, Map data) {
 
 void handleCamera(response, Map data) {
     Object json = apiResult(response, 'camera request')
-    if (!(json instanceof Map)) return
+    if (!(json instanceof Map) || !isProtectId(json.id as String)) return
     updateDoorbellChild(json as Map, false)
 }
 
 void handleViewer(response, Map data) {
     Object json = apiResult(response, 'viewer request')
-    if (!(json instanceof Map)) return
+    if (!(json instanceof Map) || !isProtectId(json.id as String)) return
     updateViewportChild(json as Map, false)
 }
 
@@ -371,13 +383,14 @@ void handleViewer(response, Map data) {
 
 private void updateViewportChild(Map viewer, boolean create) {
     String dni = viewportDni(viewer.id as String)
+    String name = plainText(viewer.name as String)
     def child = getChildDevice(dni)
     if (!child && create) {
         try {
-            child = addChildDevice(NAMESPACE, VIEWPORT_DRIVER, dni, [name:viewer.name ?: 'UniFi Protect Viewport', label:viewer.name, isComponent:false])
-            log_info "Created Viewport device '${viewer.name}'"
+            child = addChildDevice(NAMESPACE, VIEWPORT_DRIVER, dni, [name:name ?: 'UniFi Protect Viewport', label:name, isComponent:false])
+            log_info "Created Viewport device '${name}'"
         } catch (e) {
-            log_error "Could not create Viewport device '${viewer.name}'. Is the '${VIEWPORT_DRIVER}' driver installed? ${e.message}"
+            log_error "Could not create Viewport device '${name}'. Is the '${VIEWPORT_DRIVER}' driver installed? ${e.message}"
             return
         }
     }
@@ -386,20 +399,21 @@ private void updateViewportChild(Map viewer, boolean create) {
         return
     }
     child.updateDataValue 'viewerId', viewer.id as String
-    if (viewer.type) child.updateDataValue 'type', viewer.type as String
+    if (viewer.type) child.updateDataValue 'type', plainText(viewer.type as String)
 
     child.parseViewport(viewportValues(viewer, true))
 }
 
 private void updateDoorbellChild(Map camera, boolean create) {
     String dni = doorbellDni(camera.id as String)
+    String name = plainText(camera.name as String)
     def child = getChildDevice(dni)
     if (!child && create) {
         try {
-            child = addChildDevice(NAMESPACE, DOORBELL_DRIVER, dni, [name:camera.name ?: 'UniFi Protect Doorbell', label:camera.name, isComponent:false])
-            log_info "Created Doorbell device '${camera.name}'"
+            child = addChildDevice(NAMESPACE, DOORBELL_DRIVER, dni, [name:name ?: 'UniFi Protect Doorbell', label:name, isComponent:false])
+            log_info "Created Doorbell device '${name}'"
         } catch (e) {
-            log_error "Could not create Doorbell device '${camera.name}'. Is the '${DOORBELL_DRIVER}' driver installed? ${e.message}"
+            log_error "Could not create Doorbell device '${name}'. Is the '${DOORBELL_DRIVER}' driver installed? ${e.message}"
             return
         }
     }
@@ -408,8 +422,8 @@ private void updateDoorbellChild(Map camera, boolean create) {
         return
     }
     child.updateDataValue 'cameraId', camera.id as String
-    if (camera.type) child.updateDataValue 'type', camera.type as String
-    child.parseCamera([connection:camera.state ?: 'unknown', apiStatus:'ok'])
+    if (camera.type) child.updateDataValue 'type', plainText(camera.type as String)
+    child.parseCamera([connection:plainText(camera.state as String) ?: 'unknown', apiStatus:'ok'])
 }
 
 // Keeps the one events connection open while it is needed: real-time updates on and at least one doorbell.
@@ -446,10 +460,11 @@ private Map viewportValues(Map viewer, boolean full) {
     Map values = [:]
     if (full || viewer.containsKey('liveview')) {
         Map current = findLiveview(viewer.liveview as String)
-        values.liveview = current?.name ?: (viewer.liveview ? "unknown (${viewer.liveview})" : 'none')
-        values.liveviewId = viewer.liveview ?: 'none'
+        String liveviewId = plainText(viewer.liveview as String)
+        values.liveview = current?.name ?: (liveviewId ? "unknown (${liveviewId})" : 'none')
+        values.liveviewId = liveviewId ?: 'none'
     }
-    if (full || viewer.containsKey('state')) values.connection = viewer.state ?: 'unknown'
+    if (full || viewer.containsKey('state')) values.connection = plainText(viewer.state as String) ?: 'unknown'
     if (full) {
         values.liveviews = JsonOutput.toJson(liveviewNames())
         values.defaultLiveview = liveviewsState().find { it.isDefault }?.name ?: 'none'
@@ -479,9 +494,29 @@ private static String viewportDni(String id) {
 }
 
 private boolean isConfigured() {
-    return consoleIp?.trim() && apiKey?.trim()
+    return isIPv4(consoleIp) && apiKey?.trim()
 }
 
+// Only a plain dotted IPv4 address: no host names, ports, paths or user info, so the API key can't be sent elsewhere.
+private static boolean isIPv4(String value) {
+    return value != null && value.trim() ==~ /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/
+}
+
+// Protect object IDs are 24 hexadecimal characters. Anything else is rejected before it is put into a URL.
+private static boolean isProtectId(String value) {
+    return value != null && value ==~ /^[0-9a-fA-F]{24}$/
+}
+
+private static List<String> protectIds(Object id) {
+    return (id instanceof List ? id : [id]).collect { it as String }.findAll { isProtectId(it) }
+}
+
+// Removes angle brackets from text that comes from Protect (names, states), so it can't add markup to the hub's pages.
+private static String plainText(String value) {
+    return value == null ? null : value.replaceAll(/[<>]/, '')
+}
+
+// The console's certificate is self-signed and Hubitat can't pin it, so it isn't verified. See SECURITY.md.
 private Map requestParams(String path) {
     return [
         uri: "https://${consoleIp.trim()}${API_BASE}${path}",

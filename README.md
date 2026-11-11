@@ -8,10 +8,10 @@ Hubitat Elevation drivers for UniFi Protect, built on Ubiquiti's **official loca
 
 | Driver | File | Purpose | Status |
 |---|---|---|---|
-| UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews, viewers and cameras, creates child devices, keeps a real-time connection. | 0.3.0, hub-tested |
-| UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.1, hub-tested |
-| UniFi Protect Doorbell | [`component/unifi-protect-doorbell.groovy`](component/unifi-protect-doorbell.groovy) | One device per doorbell camera. Reports each ring as button 1 pushed. | 0.1.0, hub-tested |
-| UniFi Protect Event Stream | [`component/unifi-protect-event-stream.groovy`](component/unifi-protect-event-stream.groovy) | Created automatically. Keeps the one live connection to Protect's events feed and passes events to the controller. | 0.1.0, hub-tested |
+| UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews, viewers and cameras, creates child devices, keeps a real-time connection. | 0.3.1, hub-tested |
+| UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.2, hub-tested |
+| UniFi Protect Doorbell | [`component/unifi-protect-doorbell.groovy`](component/unifi-protect-doorbell.groovy) | One device per doorbell camera. Reports each ring as button 1 pushed. | 0.1.1, hub-tested |
+| UniFi Protect Event Stream | [`component/unifi-protect-event-stream.groovy`](component/unifi-protect-event-stream.groovy) | Created automatically. Keeps the one live connection to Protect's events feed and passes events to the controller. | 0.1.1, hub-tested |
 
 More device types (cameras, lights, chimes, sensors, …) can be added later as further drivers in `component/`.
 
@@ -35,7 +35,7 @@ Never commit API keys to this repository or paste them into chats or tickets.
 
 ### 3. Create the controller device
 1. Go to **Devices** → **Add device** → **Virtual**, and choose **UniFi Protect Controller**.
-1. In **Preferences**, enter the console IP address and the API key, leave **Real-time updates** on, choose a refresh interval, and click **Save**.
+1. In **Preferences**, enter the console's IPv4 address (for example `192.168.1.1`; host names aren't accepted) and the API key, leave **Real-time updates** on, choose a refresh interval, and click **Save**.
 1. The controller checks the API (`apiStatus` should become `ok`), reads the liveviews, and creates a **UniFi Protect Viewport** device for each viewer and a **UniFi Protect Doorbell** device for each doorbell camera. With at least one doorbell, it also creates the **Event Stream** device.
 
 ## Controller device
@@ -96,7 +96,7 @@ Created by the controller when there is at least one doorbell. It holds the one 
 
 - **Liveview list changes are seen on refresh.** New, renamed or deleted liveviews appear at the next refresh interval (see above). Viewer changes are real time.
 - **Refresh is asynchronous.** The `liveview` attribute updates shortly after **Refresh** returns, not immediately.
-- **The console's self-signed certificate is accepted without verification** (`ignoreSSLIssues`), as is usual for local UniFi consoles.
+- **The console's self-signed certificate is accepted without verification** (`ignoreSSLIssues`), as is usual for local UniFi consoles. See [SECURITY.md](SECURITY.md) for what that means and how to limit the risk.
 
 ## API reference
 
