@@ -25,13 +25,17 @@ More device types (cameras, lights, chimes, sensors, …) can be added later as 
 Never commit API keys to this repository or paste them into chats or tickets.
 
 ### 2. Install the drivers
+
+**With Hubitat Package Manager (recommended):** in HPM, choose **Install** → **From a URL**, enter `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/packageManifest.json`, and follow the steps. HPM installs all four drivers and keeps them updated. It can only install while this repository is public.
+
+**Manually:**
 1. In Hubitat, go to **Drivers Code** and import the drivers. The controller is always needed, the Event Stream is needed when you have a doorbell, and the other child drivers are needed for the devices you have:
    - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/unifi-protect-controller.groovy`
    - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-event-stream.groovy`
    - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-viewport.groovy`
    - `https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-doorbell.groovy`
 
-   These raw URLs need authentication while the repository is private. Until it's public, paste the code into **Drivers Code** directly.
+   These raw URLs only work while the repository is public. Otherwise, paste the code into **Drivers Code** directly.
 
 ### 3. Create the controller device
 1. Go to **Devices** → **Add device** → **Virtual**, and choose **UniFi Protect Controller**.

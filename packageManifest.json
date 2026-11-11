@@ -1,0 +1,51 @@
+{
+    "packageName": "UniFi Protect",
+    "version": "0.3.1",
+    "releaseNotes": "v0.3.1 - first packaged release.\n - Controller, Viewport, Doorbell and Event Stream drivers on the official local Protect Integration API.\n - Real-time viewer, camera and ring updates.\n - Security hardening: IPv4-only console address, Protect ID checks, debug logging turns itself off.\nSee CHANGELOG.md for details.",
+    "minimumHEVersion": "2.3.0",
+    "author": "Michael Dailous",
+    "dateReleased": "2026-11-11",
+    "documentationLink": "https://github.com/9r5n76yjmzs-design/hubitat-unifi-protect/blob/main/README.md",
+    "communityLink": "https://github.com/9r5n76yjmzs-design/hubitat-unifi-protect/issues",
+    "licenseFile": "https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/LICENSE",
+    "category": "Security",
+    "tags": [
+        "Cameras",
+        "LAN",
+        "Security"
+    ],
+    "drivers": [
+        {
+            "id": "ebe3cf0e-d59b-4006-9f2e-c3bb479feb9f",
+            "name": "UniFi Protect Controller",
+            "description": "Parent device: console address and API key, discovery, real-time updates.",
+            "namespace": "dailous",
+            "location": "https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/unifi-protect-controller.groovy",
+            "required": true
+        },
+        {
+            "id": "1d4d665b-0462-4a35-9cf0-769685934aa1",
+            "name": "UniFi Protect Viewport",
+            "description": "One device per Protect viewer: current liveview and liveview switching.",
+            "namespace": "dailous",
+            "location": "https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-viewport.groovy",
+            "required": true
+        },
+        {
+            "id": "c61a46c6-5f57-49c0-8f56-11cb0ba15905",
+            "name": "UniFi Protect Doorbell",
+            "description": "One device per doorbell camera: each ring is button 1 pushed.",
+            "namespace": "dailous",
+            "location": "https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-doorbell.groovy",
+            "required": true
+        },
+        {
+            "id": "f4642cca-cfd7-4dff-ad0c-4bc2271acc8f",
+            "name": "UniFi Protect Event Stream",
+            "description": "Created automatically: the one live connection to Protect's events feed.",
+            "namespace": "dailous",
+            "location": "https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-event-stream.groovy",
+            "required": true
+        }
+    ]
+}
