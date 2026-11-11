@@ -4,7 +4,7 @@ These drivers run on a Hubitat Elevation hub and use UniFi Protect's official lo
 
 ## Reporting a problem
 
-Please report security problems privately to the maintainer, Michael Dailous, rather than in a public issue.
+Please report security problems privately, not in a public issue: on GitHub, open this repository's **Security** tab and choose **Report a vulnerability**. The report goes only to the maintainer, Michael Dailous.
 
 ## What the drivers can reach
 
