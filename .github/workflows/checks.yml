@@ -1,0 +1,29 @@
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: the checks only read the repository.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Actions and images are pinned to exact versions so a changed upstream can't alter what runs here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Secure coding checks
+        run: bash .github/scripts/security-check.sh
+
+      - name: Groovy parse check
+        run: |
+          git ls-files -z '*.groovy' | xargs -0 docker run --rm -v "$PWD:/src" -w /src \
+            groovy@sha256:7db270764b5adc6b21f9977327357fdc6dfabe44dbcf78a4776d0c55569605cb \
+            groovy .github/scripts/syntax.groovy
