@@ -108,6 +108,10 @@ Created by the controller when there is at least one doorbell. It holds the one 
 - Local base URL: `https://<console-ip>/proxy/protect/integration`
 - Auth: `X-API-KEY` header
 
+## Acknowledgements
+
+Inspired by tomwpublic's [hubitat_unifiProtect](https://github.com/tomwpublic/hubitat_unifiProtect) and [hubitat_unifiEvents](https://github.com/tomwpublic/hubitat_unifiEvents) drivers (Apache-2.0), in particular their layout of a parent controller driver with one child driver per device type. Those drivers use Protect's private API; this project is a new implementation on the official Integration API and contains none of their code.
+
 ## License
 
 Released into the public domain under [The Unlicense](LICENSE).
