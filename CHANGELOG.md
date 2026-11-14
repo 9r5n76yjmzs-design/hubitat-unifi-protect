@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Each driver carries its own version; the package version follows the controller.
 
+## [Unreleased]
+Controller 0.4.0, Doorbell 0.2.0. Not yet tested on a hub.
+
+### Added
+- Package detection on doorbell cameras: a Protect smart detection that includes a package is reported as button 2 pushed on the Doorbell, with `lastPackage`. Each Protect event is reported once. An optional ignore time for repeat detections is in Preferences (off by default). Push with button 2 simulates a detection.
+
+### Changed
+- The Doorbell reports two buttons (`numberOfButtons` 2). Button 1 is still the ring.
+
 ## [0.3.1] - 2026-11-11
 First packaged release (Hubitat Package Manager).
 

@@ -2,15 +2,15 @@
 
 Hubitat Elevation drivers for UniFi Protect, built on Ubiquiti's **official local Protect Integration API** (API-key authentication).
 
-> **Status:** early development. All drivers are tested on a Hubitat hub against UniFi Protect 7.3.74 with a UVC G4 Doorbell Pro.
+> **Status:** early development. All drivers are tested on a Hubitat hub against UniFi Protect 7.3.74 with a UVC G4 Doorbell Pro, except package detection (controller 0.4.0, Doorbell 0.2.0), which is not yet tested on a hub.
 
 ## Drivers
 
 | Driver | File | Purpose | Status |
 |---|---|---|---|
-| UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews, viewers and cameras, creates child devices, keeps a real-time connection. | 0.3.1, hub-tested |
+| UniFi Protect Controller | [`unifi-protect-controller.groovy`](unifi-protect-controller.groovy) | Parent device. Holds the console address and API key, reads liveviews, viewers and cameras, creates child devices, keeps a real-time connection. | 0.4.0; package routing not yet hub-tested |
 | UniFi Protect Viewport | [`component/unifi-protect-viewport.groovy`](component/unifi-protect-viewport.groovy) | One device per Protect viewer (e.g. a ViewPort). Shows the current liveview and switches liveviews. | 0.1.2, hub-tested |
-| UniFi Protect Doorbell | [`component/unifi-protect-doorbell.groovy`](component/unifi-protect-doorbell.groovy) | One device per doorbell camera. Reports each ring as button 1 pushed. | 0.1.1, hub-tested |
+| UniFi Protect Doorbell | [`component/unifi-protect-doorbell.groovy`](component/unifi-protect-doorbell.groovy) | One device per doorbell camera. Reports each ring as button 1 pushed and each package detection as button 2 pushed. | 0.2.0; package detection not yet hub-tested |
 | UniFi Protect Event Stream | [`component/unifi-protect-event-stream.groovy`](component/unifi-protect-event-stream.groovy) | Created automatically. Keeps the one live connection to Protect's events feed and passes events to the controller. | 0.1.1, hub-tested |
 
 More device types (cameras, lights, chimes, sensors, …) can be added later as further drivers in `component/`.
@@ -79,32 +79,51 @@ Commands:
 | Attribute | Meaning |
 |---|---|
 | `pushed` | Button 1 pushed: a ring (standard **PushableButton** capability, so Rule Machine's "button pushed" triggers work) |
-| `numberOfButtons` | Always 1 |
+| `pushed` | Button 2 pushed: the doorbell camera detected a package |
+| `numberOfButtons` | Always 2 |
 | `lastRing` | Time of the last ring, from Protect (e.g. `2026-11-05T09:30:12-07:00`) |
+| `lastPackage` | Time of the last reported package detection, from Protect |
 | `connection` | Connection state reported by Protect (e.g. `CONNECTED`, `DISCONNECTED`) |
 | `apiStatus` | The controller's API status, copied here whenever it changes |
 
-Rings arrive through Protect's official events feed (`/v1/subscribe/events`, `ring` events), so **Real-time updates must be on** for rings to reach Hubitat. When the controller loses access to Protect, `connection` becomes `unknown`. `lastRing` is kept, because it records when a ring happened rather than a current state.
+Rings arrive through Protect's official events feed (`/v1/subscribe/events`, `ring` events), so **Real-time updates must be on** for rings to reach Hubitat. When the controller loses access to Protect, `connection` becomes `unknown`. `lastRing` and `lastPackage` are kept, because they record when something happened rather than a current state.
+
+### Package detection
+
+When the doorbell camera's smart detection sees a package (a `smartDetectZone` event whose `smartDetectTypes` include `package`), the Doorbell reports **button 2 pushed** and sets `lastPackage`. It arrives on the same events feed as rings. Package detection has to be switched on for the camera in Protect, and the camera has to support it.
+
+- **Each Protect event is reported once.** Protect sends the same event again as it changes or ends; those repeats are dropped.
+- **Every new Protect event is reported.** Protect is expected to raise one event when a new package arrives. If it turns out to report the same package more than once, Preferences has an ignore time (off by default). Rings are never held back.
+- **The driver only reports.** What happens next is up to your automations, for example:
+  - *Show the door:* install [Package Notification](https://github.com/9r5n76yjmzs-design/hubitat-package-notification), an extension to [Doorbell Display](https://github.com/9r5n76yjmzs-design/hubitat-doorbell-display). When button 2 is pushed it runs **Push** with button 1 on the Doorbell, so Doorbell Display shows the door. Everything else that reacts to a ring runs too.
+  - Anything else Hubitat can do on a button press: a notification, a light, a chime.
+
+Only doorbell cameras report packages to Hubitat. Smart detections from other cameras, and other detection types (person, vehicle, animal), are not used yet.
 
 Doorbells are found by their model name: Protect has no doorbell flag, so any camera whose model contains "Doorbell" (for example "UVC G4 Doorbell Pro") gets a Doorbell device.
 
 Commands:
-- **Push** (button 1): simulates a ring from Hubitat, for testing automations without pressing the doorbell.
+- **Push** with button 1: simulates a ring from Hubitat, for testing automations without pressing the doorbell.
+- **Push** with button 2: simulates a package detection. Test presses are never held back by the ignore time.
 - **Refresh**: re-read this camera from Protect.
 
 ## Event Stream device
 
-Created by the controller when there is at least one doorbell. It holds the one connection to Protect's events feed and hands each event to the controller, which routes it to the right child device. Hubitat gives each device a single WebSocket, and the controller's is used by the devices feed. One shared events connection serves every doorbell and future event-driven devices. It has no settings: the API key stays on the controller.
+Created by the controller when there is at least one doorbell. It holds the one connection to Protect's events feed and hands each event to the controller, which routes it to the right child device. Hubitat gives each device a single WebSocket, and the controller's is used by the devices feed. One shared events connection serves every doorbell (rings and package detections) and future event-driven devices. It has no settings: the API key stays on the controller.
 
 ## Known limitations
 
 - **Liveview list changes are seen on refresh.** New, renamed or deleted liveviews appear at the next refresh interval (see above). Viewer changes are real time.
 - **Refresh is asynchronous.** The `liveview` attribute updates shortly after **Refresh** returns, not immediately.
+- **Package detection depends on Protect.** How often Protect reports a package that stays at the door, and whether it reports one at all, is decided by the camera's smart detection settings and zones in Protect.
 - **The console's self-signed certificate is accepted without verification** (`ignoreSSLIssues`), as is usual for local UniFi consoles. See [SECURITY.md](SECURITY.md) for what that means and how to limit the risk.
 
 ## API reference
 
-- Official docs: https://developer.ui.com/protect/ (developed against v7.3.74)
+- Reference pages (version 7.4): https://developer.ui.com/protect/v7.4.99/gettingstarted
+- OpenAPI specification, for exact field names: https://developer.ui.com/protect/v7.4.99/openapi.json
+- Postman collection, for trying requests by hand: https://developer.ui.com/protect/v7.4.99/postman-collection.json
+- The version is part of these URLs and changes when Protect updates. The drivers were developed against 7.3.74; package detection was checked against the 7.4.99 specification.
 - Local base URL: `https://<console-ip>/proxy/protect/integration`
 - Auth: `X-API-KEY` header
 

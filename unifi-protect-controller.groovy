@@ -4,7 +4,8 @@
  * Parent driver for UniFi Protect using Ubiquiti's official local Integration API
  * (https://developer.ui.com/protect/). Holds the console address and API key,
  * discovers devices and creates one child device per supported device type
- * (Viewport for viewers, Doorbell for doorbell cameras, and one Event Stream for live events).
+ * (Viewport for viewers, Doorbell for doorbell cameras, and one Event Stream for live events:
+ * doorbell rings and package detections).
  *
  * @see https://github.com/9r5n76yjmzs-design/hubitat-unifi-protect
  */
@@ -12,7 +13,7 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Controller'
-@Field static final String DRIVER_VERSION = '0.3.1'
+@Field static final String DRIVER_VERSION = '0.4.0'
 @Field static final String NAMESPACE = 'dailous'
 @Field static final String VIEWPORT_DRIVER = 'UniFi Protect Viewport'
 @Field static final String DOORBELL_DRIVER = 'UniFi Protect Doorbell'
@@ -24,6 +25,11 @@ import groovy.transform.Field
 @Field static final String EVENTS_SOCKET_PATH = '/v1/subscribe/events'
 @Field static final Integer RECONNECT_MIN_SECONDS = 5
 @Field static final Integer RECONNECT_MAX_SECONDS = 300
+// Protect event types the controller routes to child devices; every other event type is ignored.
+@Field static final String RING_EVENT = 'ring'
+@Field static final String SMART_ZONE_EVENT = 'smartDetectZone'
+@Field static final String PACKAGE_DETECTION = 'package'
+@Field static final Integer EVENT_ID_MAX_LENGTH = 64
 @Field static final Map<String, String> POLL_OPTIONS = ['0':'Off', '1':'Every minute', '5':'Every 5 minutes', '15':'Every 15 minutes', '30':'Every 30 minutes']
 
 metadata {
@@ -161,17 +167,46 @@ void componentEventStreamStatus(String value) {
 }
 
 // Called by the Event Stream child with each Protect event; routes it to the child it belongs to.
+// Only doorbell rings and doorbell package detections are used; every other event is dropped here.
 void componentEvent(Map msg) {
     Map item = msg.item as Map
-    if (item?.type != 'ring') return
-    log_debug "Ring event ${msg.type}: ${item}"
-    if (msg.type != 'add' || !isProtectId(item.device as String)) return
+    switch (item?.type) {
+        case RING_EVENT:
+            routeRing(msg.type as String, item)
+            break
+        case SMART_ZONE_EVENT:
+            routePackage(msg.type as String, item)
+            break
+    }
+}
+
+private void routeRing(String change, Map item) {
+    log_debug "Ring event ${change}: ${item}"
+    if (change != 'add' || !isProtectId(item.device as String)) return
     def child = getChildDevice(doorbellDni(item.device as String))
     if (child) {
         child.parseRing(item)
     } else {
         log_info "Ring from camera ${item.device}, which has no Doorbell device; run Refresh on the controller"
     }
+}
+
+// A smart detection in a camera zone. Protect sends the event when it starts ('add') and again as it changes
+// or ends ('update'), and "package" can be in the list of detected types from the start or be added later, so
+// both are checked. Only cameras that have a Doorbell device are of interest; the Doorbell reports each
+// Protect event once. Only the fields needed are passed on, and the payload is never logged.
+private void routePackage(String change, Map item) {
+    if (!(change in ['add', 'update']) || !(item.smartDetectTypes instanceof List)) return
+    if (!item.smartDetectTypes.any { "${it}" == PACKAGE_DETECTION }) return
+    if (!isProtectId(item.device as String)) return
+    def child = getChildDevice(doorbellDni(item.device as String))
+    if (!child) {
+        log_debug "Package detection (${change}) from camera ${item.device}, which has no Doorbell device; not used"
+        return
+    }
+    String eventId = eventKey(item.id)
+    log_debug "Package detection (${change}) on ${child.displayName}, event ${eventId ?: 'without an ID'}"
+    child.parsePackage([id:eventId, start:(item.start instanceof Number ? item.start : null)])
 }
 
 // ===================================================================================================================
@@ -509,6 +544,14 @@ private static boolean isProtectId(String value) {
 
 private static List<String> protectIds(Object id) {
     return (id instanceof List ? id : [id]).collect { it as String }.findAll { isProtectId(it) }
+}
+
+// Event IDs are only compared and kept in state, never put into a URL. They are still cut to a plain, bounded
+// form (letters, digits and dashes) so nothing unexpected from the feed is stored.
+private static String eventKey(Object id) {
+    if (!(id instanceof String)) return null
+    String key = id.replaceAll(/[^0-9A-Za-z-]/, '')
+    return key ? key.take(EVENT_ID_MAX_LENGTH) : null
 }
 
 // Removes angle brackets from text that comes from Protect (names, states), so it can't add markup to the hub's pages.
