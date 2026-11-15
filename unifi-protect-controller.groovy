@@ -4,8 +4,9 @@
  * Parent driver for UniFi Protect using Ubiquiti's official local Integration API
  * (https://developer.ui.com/protect/). Holds the console address and API key,
  * discovers devices and creates one child device per supported device type
- * (Viewport for viewers, Doorbell for doorbell cameras, and one Event Stream for live events:
- * doorbell rings and package detections).
+ * (Viewport for viewers, Doorbell for doorbell cameras, Glass Break for cameras that can recognize
+ * breaking glass, and one Event Stream for live events: doorbell rings, package detections and
+ * camera sound detections).
  *
  * @see https://github.com/9r5n76yjmzs-design/hubitat-unifi-protect
  */
@@ -13,10 +14,11 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 
 @Field static final String DRIVER_NAME = 'UniFi Protect Controller'
-@Field static final String DRIVER_VERSION = '0.4.0'
+@Field static final String DRIVER_VERSION = '0.5.0'
 @Field static final String NAMESPACE = 'dailous'
 @Field static final String VIEWPORT_DRIVER = 'UniFi Protect Viewport'
 @Field static final String DOORBELL_DRIVER = 'UniFi Protect Doorbell'
+@Field static final String GLASS_BREAK_DRIVER = 'UniFi Protect Glass Break'
 @Field static final String EVENT_STREAM_DRIVER = 'UniFi Protect Event Stream'
 @Field static final String EVENT_STREAM_DNI = 'unifi-protect-event-stream'
 @Field static final String API_BASE = '/proxy/protect/integration'
@@ -29,6 +31,10 @@ import groovy.transform.Field
 @Field static final String RING_EVENT = 'ring'
 @Field static final String SMART_ZONE_EVENT = 'smartDetectZone'
 @Field static final String PACKAGE_DETECTION = 'package'
+@Field static final String AUDIO_EVENT = 'smartAudioDetect'
+@Field static final String GLASS_BREAK = 'alrmGlassBreak'
+// The sounds Protect 7.4 cameras can recognize (smartDetectAudioTypes); anything else in an event is dropped.
+@Field static final List<String> AUDIO_TYPES = ['alrmSmoke', 'alrmCmonx', 'alrmSiren', 'alrmBabyCry', 'alrmSpeak', 'alrmBark', 'alrmBurglar', 'alrmCarHorn', 'alrmGlassBreak']
 @Field static final Integer EVENT_ID_MAX_LENGTH = 64
 @Field static final Map<String, String> POLL_OPTIONS = ['0':'Off', '1':'Every minute', '5':'Every 5 minutes', '15':'Every 15 minutes', '30':'Every 30 minutes']
 
@@ -167,7 +173,8 @@ void componentEventStreamStatus(String value) {
 }
 
 // Called by the Event Stream child with each Protect event; routes it to the child it belongs to.
-// Only doorbell rings and doorbell package detections are used; every other event is dropped here.
+// Doorbell rings, doorbell package detections and sound detections on cameras with a Glass Break device
+// are used; every other event is dropped here.
 void componentEvent(Map msg) {
     Map item = msg.item as Map
     switch (item?.type) {
@@ -176,6 +183,9 @@ void componentEvent(Map msg) {
             break
         case SMART_ZONE_EVENT:
             routePackage(msg.type as String, item)
+            break
+        case AUDIO_EVENT:
+            routeAudio(msg.type as String, item)
             break
     }
 }
@@ -207,6 +217,25 @@ private void routePackage(String change, Map item) {
     String eventId = eventKey(item.id)
     log_debug "Package detection (${change}) on ${child.displayName}, event ${eventId ?: 'without an ID'}"
     child.parsePackage([id:eventId, start:(item.start instanceof Number ? item.start : null)])
+}
+
+// A sound the camera recognized (glass break, smoke alarm, dog bark, ...). Protect sends the event when it
+// starts ('add') and again as it changes or ends ('update', with 'end' set). Only cameras that have a
+// Glass Break device are of interest; that device reports each Protect event once. Only known sound names
+// and the fields needed are passed on, and the payload is never logged.
+private void routeAudio(String change, Map item) {
+    if (!(change in ['add', 'update']) || !isProtectId(item.device as String)) return
+    def child = getChildDevice(glassBreakDni(item.device as String))
+    if (!child) {
+        log_debug "Sound detection (${change}) from camera ${item.device}, which has no Glass Break device; not used"
+        return
+    }
+    List<String> types = item.smartDetectTypes instanceof List ? (item.smartDetectTypes as List).collect { it as String }.findAll { it in AUDIO_TYPES } : []
+    boolean ended = item.end instanceof Number
+    if (!types && !ended) return
+    String eventId = eventKey(item.id)
+    log_debug "Sound detection (${change}) on ${child.displayName}: ${types}, event ${eventId ?: 'without an ID'}"
+    child.parseAudio([id:eventId, types:types, start:(item.start instanceof Number ? item.start : null), ended:ended])
 }
 
 // ===================================================================================================================
@@ -292,29 +321,31 @@ void parse(String message) {
     }
 }
 
-// Real-time camera messages. Only cameras with a Doorbell device are of interest; other cameras are ignored.
+// Real-time camera messages. Only cameras with a Doorbell or Glass Break device are of interest; other cameras are ignored.
 private void parseCameraMessage(String type, Map item) {
     List<String> ids = protectIds(item.id)
     switch (type) {
         case 'add':
-            if (isDoorbell(item)) {
-                log_info 'Protect reported a new doorbell; refreshing'
+            if (isDoorbell(item) || supportsGlassBreak(item)) {
+                log_info 'Protect reported a new doorbell or glass-break camera; refreshing'
                 refresh()
             }
             break
         case 'update':
-            if (!item.containsKey('state')) return
+            Map values = item.containsKey('state') ? [connection:plainText(item.state as String) ?: 'unknown'] : [:]
             ids.each { String id ->
-                def child = getChildDevice(doorbellDni(id))
-                if (child) child.parseCamera([connection:plainText(item.state as String) ?: 'unknown'])
+                if (values) getChildDevice(doorbellDni(id))?.parseCamera(values)
+                def glass = getChildDevice(glassBreakDni(id))
+                Map glassValues = values + audioValues(item)
+                if (glass && glassValues) glass.parseCamera(glassValues)
             }
             break
         case 'remove':
             ids.each { String id ->
-                def child = getChildDevice(doorbellDni(id))
-                if (!child) return
-                log_warn "${child.displayName} was removed from Protect; leaving the device in place"
-                child.clearCamera()
+                [getChildDevice(doorbellDni(id)), getChildDevice(glassBreakDni(id))].findAll { it }.each { child ->
+                    log_warn "${child.displayName} was removed from Protect; leaving the device in place"
+                    child.clearCamera()
+                }
             }
             break
     }
@@ -393,17 +424,26 @@ void handleCameras(response, Map data) {
         seen << doorbellDni(camera.id as String)
         updateDoorbellChild(camera, true)
     }
-    getChildDevices().findAll { it.deviceNetworkId.startsWith('unifi-protect-doorbell-') && !seen.contains(it.deviceNetworkId) }.each {
+    List<Map> glassCameras = json.findAll { supportsGlassBreak(it as Map) && isProtectId(it.id as String) }
+    log_debug "${glassCameras.size()} camera(s) can recognize breaking glass"
+    glassCameras.each { Map camera ->
+        seen << glassBreakDni(camera.id as String)
+        updateGlassBreakChild(camera, true)
+    }
+    getChildDevices().findAll { (it.deviceNetworkId.startsWith('unifi-protect-doorbell-') || it.deviceNetworkId.startsWith('unifi-protect-glassbreak-')) && !seen.contains(it.deviceNetworkId) }.each {
         log_warn "${it.displayName} is no longer reported by Protect; leaving the device in place"
         it.clearCamera()
     }
-    updateEventStream(!doorbells.isEmpty())
+    updateEventStream(!doorbells.isEmpty() || !glassCameras.isEmpty())
 }
 
+// One camera, re-read for a child's Refresh. Updates whichever of its devices exist.
 void handleCamera(response, Map data) {
     Object json = apiResult(response, 'camera request')
     if (!(json instanceof Map) || !isProtectId(json.id as String)) return
-    updateDoorbellChild(json as Map, false)
+    String id = json.id as String
+    if (getChildDevice(doorbellDni(id))) updateDoorbellChild(json as Map, false)
+    if (getChildDevice(glassBreakDni(id))) updateGlassBreakChild(json as Map, false)
 }
 
 void handleViewer(response, Map data) {
@@ -461,7 +501,58 @@ private void updateDoorbellChild(Map camera, boolean create) {
     child.parseCamera([connection:plainText(camera.state as String) ?: 'unknown', apiStatus:'ok'])
 }
 
-// Keeps the one events connection open while it is needed: real-time updates on and at least one doorbell.
+private void updateGlassBreakChild(Map camera, boolean create) {
+    String dni = glassBreakDni(camera.id as String)
+    String name = plainText(camera.name as String)
+    String label = name ? "${name} Glass Break" : 'UniFi Protect Glass Break'
+    def child = getChildDevice(dni)
+    if (!child && create) {
+        try {
+            child = addChildDevice(NAMESPACE, GLASS_BREAK_DRIVER, dni, [name:GLASS_BREAK_DRIVER, label:label, isComponent:false])
+            log_info "Created Glass Break device '${label}'"
+        } catch (e) {
+            log_error "Could not create Glass Break device '${label}'. Is the '${GLASS_BREAK_DRIVER}' driver installed? ${e.message}"
+            return
+        }
+    }
+    if (!child) {
+        log_warn "No Glass Break device for camera ${camera.id}; run Refresh on the controller"
+        return
+    }
+    child.updateDataValue 'cameraId', camera.id as String
+    if (camera.type) child.updateDataValue 'type', plainText(camera.type as String)
+    child.parseCamera([connection:plainText(camera.state as String) ?: 'unknown', apiStatus:'ok'] + audioValues(camera))
+}
+
+// The camera's sound detections: which it supports (featureFlags) and which are turned on in Protect
+// (smartDetectSettings), as lists of Protect's names. Only lists present in the message are returned.
+private Map audioValues(Map camera) {
+    Map values = [:]
+    List<String> supported = audioList((camera.featureFlags instanceof Map) ? camera.featureFlags.smartDetectAudioTypes : null)
+    List<String> enabled = audioList((camera.smartDetectSettings instanceof Map) ? camera.smartDetectSettings.audioTypes : null)
+    if (supported != null) values.audioDetectionsSupported = supported
+    if (enabled != null) {
+        values.audioDetectionsOn = enabled
+        values.glassBreakDetection = enabled.contains(GLASS_BREAK) ? 'on' : 'off'
+    }
+    return values
+}
+
+private static List<String> audioList(Object value) {
+    return value instanceof List ? (value as List).collect { it as String }.findAll { it in AUDIO_TYPES } : null
+}
+
+private static boolean supportsGlassBreak(Map camera) {
+    Object types = (camera?.featureFlags instanceof Map) ? camera.featureFlags.smartDetectAudioTypes : null
+    return types instanceof List && (types as List).any { "${it}" == GLASS_BREAK }
+}
+
+private static String glassBreakDni(String id) {
+    return "unifi-protect-glassbreak-${id}"
+}
+
+// Keeps the one events connection open while it is needed: real-time updates on and at least one doorbell
+// or Glass Break device.
 private void updateEventStream(boolean needed) {
     def stream = getChildDevice(EVENT_STREAM_DNI)
     if (!needed || realtimeEnable == false) {
@@ -473,7 +564,7 @@ private void updateEventStream(boolean needed) {
             stream = addChildDevice(NAMESPACE, EVENT_STREAM_DRIVER, EVENT_STREAM_DNI, [name:EVENT_STREAM_DRIVER, label:"${device.displayName} Event Stream", isComponent:true])
             log_info 'Created the Event Stream device'
         } catch (e) {
-            log_error "Could not create the Event Stream device. Is the '${EVENT_STREAM_DRIVER}' driver installed? Rings can't be received without it. ${e.message}"
+            log_error "Could not create the Event Stream device. Is the '${EVENT_STREAM_DRIVER}' driver installed? Rings and glass breaks can't be received without it. ${e.message}"
             return
         }
     }
