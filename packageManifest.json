@@ -40,6 +40,14 @@
             "required": true
         },
         {
+            "id": "79895be8-a758-4da0-b523-1347d4d0a751",
+            "name": "UniFi Protect Glass Break",
+            "description": "One device per camera that can recognize breaking glass: a shock sensor for Hubitat Safety Monitor.",
+            "namespace": "dailous",
+            "location": "https://raw.githubusercontent.com/9r5n76yjmzs-design/hubitat-unifi-protect/main/component/unifi-protect-glass-break.groovy",
+            "required": true
+        },
+        {
             "id": "f4642cca-cfd7-4dff-ad0c-4bc2271acc8f",
             "name": "UniFi Protect Event Stream",
             "description": "Created automatically: the one live connection to Protect's events feed.",
